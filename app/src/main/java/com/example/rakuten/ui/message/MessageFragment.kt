@@ -11,6 +11,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.telephony.SmsManager
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -24,6 +25,10 @@ import com.example.rakuten.utils.appendKPI
 import com.example.rakuten.utils.collectKPIs
 import com.example.rakuten.utils.getTelephonyManagerDetails
 import com.example.rakuten.utils.messageKpi
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @SuppressLint("UnspecifiedRegisterReceiverFlag")
 class MessageFragment : Fragment() {
@@ -84,6 +89,7 @@ class MessageFragment : Fragment() {
         }
     }
 
+    @SuppressLint("UnsafeImplicitIntentLaunch")
     fun sendSmsWithKPIs(phoneNumber: String, message: String) {
         val smsManager = SmsManager.getDefault()
         val context = requireContext()
@@ -92,18 +98,19 @@ class MessageFragment : Fragment() {
             context,
             0,
             Intent("SMS_SENT"),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+             PendingIntent.FLAG_IMMUTABLE
         )
         val deliveryIntent = PendingIntent.getBroadcast(
             context,
             0,
             Intent("SMS_DELIVERED"),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+             PendingIntent.FLAG_IMMUTABLE
         )
 
         // Register Broadcast Receivers for Sent and Delivery Status
         requireContext().registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                Log.e("Rahul", "SMS_SENT")
                 val status = when (resultCode) {
                     Activity.RESULT_OK -> "Sent successfully"
                     SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "Generic failure"
@@ -115,10 +122,11 @@ class MessageFragment : Fragment() {
                 appendKPI("Sent Status: $status")
                 binding?.messageKpiText?.text = messageKpi
             }
-        }, IntentFilter("SMS_SENT"))
+        }, IntentFilter("SMS_SENT"), Context.RECEIVER_EXPORTED)
 
         requireContext().registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                Log.e("Rahul", "SMS_DELIVERED")
                 val status = when (resultCode) {
                     Activity.RESULT_OK -> "Delivered successfully"
                     Activity.RESULT_CANCELED -> "Delivery failed"
@@ -128,7 +136,7 @@ class MessageFragment : Fragment() {
                 appendKPI("Delivery Timestamp: ${System.currentTimeMillis()}")
                 binding?.messageKpiText?.text = messageKpi
             }
-        }, IntentFilter("SMS_DELIVERED"))
+        }, IntentFilter("SMS_DELIVERED"), Context.RECEIVER_EXPORTED)
 
         // Send SMS
         smsManager.sendTextMessage(phoneNumber, null, message, sentIntent, deliveryIntent)
@@ -136,6 +144,12 @@ class MessageFragment : Fragment() {
         // Collect KPIs
         val messageKpi = collectKPIs(requireContext(), phoneNumber, message)
         binding?.messageKpiText?.text = messageKpi
+        CoroutineScope(Dispatchers.Main).launch {
+            delay(2000)
+            val intent = Intent("SMS_SENT")
+            context.sendBroadcast(intent)
+        }
+
     }
 
 

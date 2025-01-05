@@ -56,11 +56,16 @@ class SmsManager(private val context: Context) {
     private var smsSentReceiver: BroadcastReceiver? = null
     private var smsDeliveredReceiver: BroadcastReceiver? = null
 
-    private  val deliveryaction = SMS_DELIVER_ACTION
-    private val sms_received= SMS_RECEIVED_ACTION
+    /*private  val deliveryaction = "SMS_DELIVERED"
+    private val sms_received= "SMS_SENT"
+*/
+
+    private val MESSAGE_SENT = "SMS_SENT"
+    private val MESSAGE_DELIVERED = "SMS_DELIVERED"
 
     init {
         registerReceivers()
+        updateInitialMetrics()
     }
 
     data class MessageMetrics(
@@ -74,10 +79,11 @@ class SmsManager(private val context: Context) {
 
     fun sendMessage(phoneNumber: String, message: String): String {
         // Validate prerequisites
+        val messageId = UUID.randomUUID().toString()
         if (!checkPrerequisites()) {
             updateDeliveryStatus(
                 SmsDeliveryStatus(
-                    UUID.randomUUID().toString(),
+                    messageId,
                     phoneNumber,
                     DeliveryStatus.NO_SERVICE,
                     System.currentTimeMillis()
@@ -85,8 +91,6 @@ class SmsManager(private val context: Context) {
             )
             return "NO_SERVICE"
         }
-
-        val messageId = UUID.randomUUID().toString()
 
         try {
             // Check for valid phone number
@@ -152,51 +156,48 @@ class SmsManager(private val context: Context) {
 
     private fun registerReceivers() {
         // SMS Sent receiver
-        Log.d("RAHUL", "Broadcast received wit ${context.packageName}")
         smsSentReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                Log.d("RAHUL", "Broadcast received with action: ${intent?.action}, resultCode: $resultCode")
-                val messageId = intent?.data?.lastPathSegment ?: return
+                val receivedMessageId = intent?.getStringExtra("message_id")?:""
+                val receivedPhoneNumber = intent?.getStringExtra("phone_number")?:""
+               // val messageId = intent?.data?.lastPathSegment ?: return
 
                 when (resultCode) {
                     Activity.RESULT_OK -> {
                         updateDeliveryStatus(
                             SmsDeliveryStatus(
-                                messageId,
-                                intent.getStringExtra("phone_number") ?: "",
+                                receivedMessageId,
+                                receivedPhoneNumber,
                                 DeliveryStatus.SENT,
                                 System.currentTimeMillis()
                             )
                         )
                     }
-                    SmsManager.RESULT_ERROR_NO_SERVICE -> handleNoService(messageId)
-                    SmsManager.RESULT_ERROR_RADIO_OFF -> handleNetworkError(messageId)
-                    else -> handleSendFailure(messageId)
+                    SmsManager.RESULT_ERROR_NO_SERVICE -> handleNoService(receivedMessageId)
+                    SmsManager.RESULT_ERROR_RADIO_OFF -> handleNetworkError(receivedMessageId)
+                    else -> handleSendFailure(receivedMessageId)
                 }
             }
         }.also { receiver ->
             context.registerReceiver(
                 receiver,
-                IntentFilter(deliveryaction/*"com.example.rakuten.SMS_SENT"*/)/*.apply {
-                    addDataScheme(context.packageName)
-                },
-                Context.RECEIVER_NOT_EXPORTED*/
+                IntentFilter(MESSAGE_SENT),
+                Context.RECEIVER_EXPORTED
             )
         }
 
         // SMS Delivered receiver
         smsDeliveredReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                Log.d("RAHUL", "Broadcast received with action: ${intent?.action}, resultCode: $resultCode")
-                var messageId = intent?.getStringExtra("message_id")?:""
-
+                val receivedMessageId = intent?.getStringExtra("message_id")?:""
+                val receivedPhoneNumber = intent?.getStringExtra("phone_number")?:""
 
                 when (resultCode) {
                     Activity.RESULT_OK -> {
                         updateDeliveryStatus(
                             SmsDeliveryStatus(
-                                messageId,
-                                intent?.getStringExtra("phone_number") ?: "",
+                                receivedMessageId,
+                                receivedPhoneNumber,
                                 DeliveryStatus.DELIVERED,
                                 System.currentTimeMillis()
                             )
@@ -204,7 +205,7 @@ class SmsManager(private val context: Context) {
                         updateMetrics(true)
                     }
                     Activity.RESULT_CANCELED -> {
-                        handleDeliveryFailure(messageId)
+                        handleDeliveryFailure(receivedMessageId)
                         updateMetrics(false)
                     }
                 }
@@ -212,7 +213,7 @@ class SmsManager(private val context: Context) {
         }.also { receiver ->
             context.registerReceiver(
                 receiver,
-                IntentFilter(sms_received /*"com.example.rakuten.SMS_DELIVERED"*/)
+                IntentFilter(MESSAGE_DELIVERED),Context.RECEIVER_EXPORTED
             )
         }
     }
@@ -237,16 +238,15 @@ class SmsManager(private val context: Context) {
         }
     }
 
-    @SuppressLint("SuspiciousIndentation")
     private fun createSentPendingIntent(messageId: String, phoneNumber: String ): PendingIntent {
       var intent =   PendingIntent.getBroadcast(
             context,
             0,
-            Intent(deliveryaction/*"com.example.rakuten.SMS_SENT"*/).apply {
+            Intent(MESSAGE_SENT).apply {
                 putExtra("message_id", messageId)
                 putExtra("phone_number", phoneNumber)
             },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         return intent
     }
@@ -255,11 +255,11 @@ class SmsManager(private val context: Context) {
         val deliveredIntent = PendingIntent.getBroadcast(
             context,
             0,
-            Intent(sms_received /*"com.example.rakuten.SMS_DELIVERED"*/).apply {
+            Intent(MESSAGE_DELIVERED).apply {
                 putExtra("message_id", messageId)
                 putExtra("phone_number", phoneNumber)
             },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return deliveredIntent
     }
 
@@ -424,7 +424,7 @@ class SmsManager(private val context: Context) {
         }
     }
 
-    private fun updateMetrics(successful: Boolean) {
+    /*private fun updateMetrics(successful: Boolean) {
         _messageMetrics.value = _messageMetrics.value?.let { metrics ->
             metrics.copy(
                 totalMessagesSent = metrics.totalMessagesSent + 1,
@@ -432,6 +432,31 @@ class SmsManager(private val context: Context) {
                 failedDeliveries = metrics.failedDeliveries + if (!successful) 1 else 0
             )
         } ?: MessageMetrics()
+    }*/
+
+    private fun updateInitialMetrics(){
+        val currentMetrics = _messageMetrics.value ?: MessageMetrics()
+        _messageMetrics.postValue(
+            currentMetrics
+        )
+    }
+
+    private fun updateMetrics(
+        successful: Boolean = false,
+        failed: Boolean = false,
+        networkError: Boolean = false
+    ) {
+        val currentMetrics = _messageMetrics.value ?: MessageMetrics()
+
+        _messageMetrics.postValue(
+            currentMetrics.copy(
+                totalMessagesSent = currentMetrics.totalMessagesSent + 1,
+                successfulDeliveries = currentMetrics.successfulDeliveries + if (successful) 1 else 0,
+                failedDeliveries = currentMetrics.failedDeliveries + if (failed) 1 else 0,
+                networkErrors = currentMetrics.networkErrors + if (networkError) 1 else 0,
+                retryAttempts = messageRetryCount.values.sum()
+            )
+        )
     }
 
     private fun updateDeliveryStatus(status: SmsDeliveryStatus) {
@@ -576,24 +601,6 @@ class SmsManager(private val context: Context) {
         // In a real implementation, you would store and retrieve this information
         // from a local database or cache
         return null // Placeholder
-    }
-
-    private fun updateMetrics(
-        successful: Boolean = false,
-        failed: Boolean = false,
-        networkError: Boolean = false
-    ) {
-        val currentMetrics = _messageMetrics.value ?: MessageMetrics()
-
-        _messageMetrics.postValue(
-            currentMetrics.copy(
-                totalMessagesSent = currentMetrics.totalMessagesSent + 1,
-                successfulDeliveries = currentMetrics.successfulDeliveries + if (successful) 1 else 0,
-                failedDeliveries = currentMetrics.failedDeliveries + if (failed) 1 else 0,
-                networkErrors = currentMetrics.networkErrors + if (networkError) 1 else 0,
-                retryAttempts = messageRetryCount.values.sum()
-            )
-        )
     }
 
 

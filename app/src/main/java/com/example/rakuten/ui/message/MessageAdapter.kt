@@ -22,7 +22,7 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
                 findViewById<TextView>(R.id.messageContentText).text = message.content
                 findViewById<TextView>(R.id.statusText).apply {
                     text = message.status.name
-                    setTextColor(getStatusColor(message.status))
+                    setBackgroundColor(getStatusColor(message.status))
                 }
                 findViewById<TextView>(R.id.timestampText).text =
                     SimpleDateFormat("MM/dd HH:mm:ss", Locale.getDefault())
