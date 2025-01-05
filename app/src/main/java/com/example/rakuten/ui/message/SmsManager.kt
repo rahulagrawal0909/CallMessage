@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
+import android.provider.Telephony.Sms.Intents.SMS_DELIVER_ACTION
+import android.provider.Telephony.Sms.Intents.SMS_RECEIVED_ACTION
 import android.telephony.PhoneNumberUtils
 import android.telephony.SmsManager
 import android.telephony.TelephonyManager
@@ -54,7 +56,8 @@ class SmsManager(private val context: Context) {
     private var smsSentReceiver: BroadcastReceiver? = null
     private var smsDeliveredReceiver: BroadcastReceiver? = null
 
-    private  val deliveryaction = "android.provider.Telephony.SMS_DELIVER_ACTION"
+    private  val deliveryaction = SMS_DELIVER_ACTION
+    private val sms_received= SMS_RECEIVED_ACTION
 
     init {
         registerReceivers()
@@ -174,10 +177,10 @@ class SmsManager(private val context: Context) {
         }.also { receiver ->
             context.registerReceiver(
                 receiver,
-                IntentFilter(deliveryaction/*"com.example.rakuten.SMS_SENT"*/).apply {
+                IntentFilter(deliveryaction/*"com.example.rakuten.SMS_SENT"*/)/*.apply {
                     addDataScheme(context.packageName)
                 },
-                Context.RECEIVER_NOT_EXPORTED
+                Context.RECEIVER_NOT_EXPORTED*/
             )
         }
 
@@ -185,14 +188,15 @@ class SmsManager(private val context: Context) {
         smsDeliveredReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 Log.d("RAHUL", "Broadcast received with action: ${intent?.action}, resultCode: $resultCode")
-                val messageId = intent?.data?.lastPathSegment ?: return
+                var messageId = intent?.getStringExtra("message_id")?:""
+
 
                 when (resultCode) {
                     Activity.RESULT_OK -> {
                         updateDeliveryStatus(
                             SmsDeliveryStatus(
                                 messageId,
-                                intent.getStringExtra("phone_number") ?: "",
+                                intent?.getStringExtra("phone_number") ?: "",
                                 DeliveryStatus.DELIVERED,
                                 System.currentTimeMillis()
                             )
@@ -208,10 +212,7 @@ class SmsManager(private val context: Context) {
         }.also { receiver ->
             context.registerReceiver(
                 receiver,
-                IntentFilter(deliveryaction /*"com.example.rakuten.SMS_DELIVERED"*/).apply {
-                    addDataScheme(context.packageName)
-                },
-                Context.RECEIVER_NOT_EXPORTED
+                IntentFilter(sms_received /*"com.example.rakuten.SMS_DELIVERED"*/)
             )
         }
     }
@@ -254,7 +255,7 @@ class SmsManager(private val context: Context) {
         val deliveredIntent = PendingIntent.getBroadcast(
             context,
             0,
-            Intent(deliveryaction /*"com.example.rakuten.SMS_DELIVERED"*/).apply {
+            Intent(sms_received /*"com.example.rakuten.SMS_DELIVERED"*/).apply {
                 putExtra("message_id", messageId)
                 putExtra("phone_number", phoneNumber)
             },
