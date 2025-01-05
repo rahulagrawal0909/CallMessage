@@ -1,25 +1,20 @@
 package com.example.rakuten.ui.video
 
-import android.annotation.SuppressLint
 import android.graphics.Color
-import android.net.Uri
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
-import android.widget.ImageView
 import android.widget.TextView
 import androidx.annotation.OptIn
-import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.ListPopupWindow
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.VideoSize
@@ -31,19 +26,23 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ConcatenatingMediaSource
 import androidx.media3.exoplayer.source.MediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.trackselection.MappingTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import com.example.rakuten.R
 import com.example.rakuten.databinding.ActivityVideoBinding
-import java.util.Locale
+import com.example.rakuten.utils.NetworkSpeedMonitor
 
 @OptIn(UnstableApi::class)
 class VideoActivity : AppCompatActivity(), AnalyticsListener {
+
     private val binding by lazy {
         ActivityVideoBinding.inflate(layoutInflater)
+    }
+
+    private val networkSpeedMonitor by lazy {
+        NetworkSpeedMonitor(this)
     }
 
     private var dataConsumedInMb = 0.0
@@ -58,16 +57,35 @@ class VideoActivity : AppCompatActivity(), AnalyticsListener {
         setContentView(binding.root)
         initPlayer()
         setListener()
+        observeData()
+    }
+
+    private fun observeData() {
+        networkSpeedMonitor.networkMetrics.observe(this) { metrics ->
+            updateUI(metrics)
+        }
+    }
+
+    private fun updateUI(metrics: NetworkSpeedMonitor.NetworkMetrics?) {
+        val netWorkDetail =
+            "Download Speed: ${metrics?.downloadSpeed} \n" +
+                    "Upload Speed: ${metrics?.uploadSpeed} \n" +
+                    "Network Speed: ${metrics?.networkType} \n" +
+                    "Latency: ${metrics?.latency}ms"
+
+        binding?.networkDetail?.text = netWorkDetail
     }
 
     override fun onPause() {
         super.onPause()
         pause()
+        networkSpeedMonitor.stopMonitoring()
     }
 
     override fun onResume() {
         super.onResume()
         play()
+        networkSpeedMonitor.startMonitoring()
     }
 
     override fun onDestroy() {
@@ -124,18 +142,6 @@ class VideoActivity : AppCompatActivity(), AnalyticsListener {
             concatenatingMediaSource.addMediaSource(mediaSource)
         }
         return concatenatingMediaSource
-    }
-
-    private fun getHlsMediaSource(): MediaSource {
-        // Create a HLS media source pointing to a playlist uri.
-        return HlsMediaSource.Factory(dataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(MEDIA_URL_HLS))
-    }
-
-    private fun getProgressiveMediaSource(): MediaSource {
-        // Create a Regular media source pointing to a playlist uri.
-        return ProgressiveMediaSource.Factory(dataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(Uri.parse(MEDIA_URL)))
     }
 
     private fun releasePlayer() {
@@ -200,7 +206,7 @@ class VideoActivity : AppCompatActivity(), AnalyticsListener {
     }
 
     private var videoQuality: Pair<String, String> = Pair("480 x 270", "270p")
-    fun saveVideoQuality(quality: String, displayQuality: String) {
+    private fun saveVideoQuality(quality: String, displayQuality: String) {
         videoQuality = Pair(quality, displayQuality)
     }
 
@@ -269,8 +275,7 @@ class VideoActivity : AppCompatActivity(), AnalyticsListener {
             trackSelector.buildUponParameters().setMaxVideoSizeSd().build()
     }
 
-    @SuppressLint("UnsafeOptInUsageError")
-    fun DefaultTrackSelector.generateQualityList(): ArrayList<Pair<String, TrackSelectionParameters.Builder?>> {
+    private fun DefaultTrackSelector.generateQualityList(): ArrayList<Pair<String, TrackSelectionParameters.Builder?>> {
         //Render Track -> TRACK GROUPS (Track Array)(Video,Audio,Text)->Track
         val trackOverrideList = ArrayList<Pair<String, TrackSelectionParameters.Builder?>>()
 
@@ -320,8 +325,7 @@ class VideoActivity : AppCompatActivity(), AnalyticsListener {
         return trackOverrideList
     }
 
-    @SuppressLint("UnsafeOptInUsageError")
-    fun isSupportedFormat(
+    private fun isSupportedFormat(
         mappedTrackInfo: MappingTrackSelector.MappedTrackInfo?,
         rendererIndex: Int
     ): Boolean {
@@ -374,20 +378,12 @@ class VideoActivity : AppCompatActivity(), AnalyticsListener {
 
     override fun onVideoSizeChanged(eventTime: AnalyticsListener.EventTime, videoSize: VideoSize) {
         if (videoSize.width != 0) {
-            binding?.otherDetails?.text = "${binding?.otherDetails?.text} \n" +
-                    "VideoSizeChanged Width px = ${videoSize.width} \n" +
-                    "VideoSizeChanged Height px = ${videoSize.height}"
+            binding?.otherDetails?.text = "VideoSizeChanged Width In Pixel = ${videoSize.width} \n" +
+                    "VideoSizeChanged Height In Pixel = ${videoSize.height}"
         }
     }
 
     fun String.getWidthAndHeight(): Pair<String, String> {
         return Pair(this.substringBefore("x").trim(), this.substringAfter("x").trim())
-    }
-
-    companion object {
-        private const val MEDIA_URL =
-            "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
-        private const val MEDIA_URL_HLS =
-            "https://hls.fantv.world/8f0608e8-32a7-4bce-9650-76bd6f84bc43/hls/8f0608e8-32a7-4bce-9650-76bd6f84bc43.m3u8"
     }
 }

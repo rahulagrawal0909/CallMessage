@@ -7,13 +7,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.net.Uri
-import android.provider.Telephony.Sms.Intents.SMS_DELIVER_ACTION
-import android.provider.Telephony.Sms.Intents.SMS_RECEIVED_ACTION
 import android.telephony.PhoneNumberUtils
 import android.telephony.SmsManager
 import android.telephony.TelephonyManager
-import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import java.util.*
@@ -55,10 +51,6 @@ class SmsManager(private val context: Context) {
 
     private var smsSentReceiver: BroadcastReceiver? = null
     private var smsDeliveredReceiver: BroadcastReceiver? = null
-
-    /*private  val deliveryaction = "SMS_DELIVERED"
-    private val sms_received= "SMS_SENT"
-*/
 
     private val MESSAGE_SENT = "SMS_SENT"
     private val MESSAGE_DELIVERED = "SMS_DELIVERED"

@@ -1,186 +1,152 @@
 package com.example.rakuten.ui.message
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.app.Activity
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.os.Bundle
-import android.telephony.SmsManager
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Toast
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
-import com.example.rakuten.databinding.FragmentMessageBinding
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.rakuten.databinding.FragmentMessageTwoBinding
+import com.example.rakuten.ui.viewmodel.MessageViewModel
 import com.example.rakuten.utils.MyBottomSheetDialogFragment
-import com.example.rakuten.utils.appendKPI
 import com.example.rakuten.utils.collectKPIs
-import com.example.rakuten.utils.getTelephonyManagerDetails
-import com.example.rakuten.utils.messageKpi
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import com.example.rakuten.utils.showToast
+import com.google.android.material.snackbar.Snackbar
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 
-@SuppressLint("UnspecifiedRegisterReceiverFlag")
-class MessageFragment : Fragment() {
+@AndroidEntryPoint
+class MessageFragment  : Fragment() {
+    private lateinit var viewModel: MessageViewModel
+    private lateinit var adapter: MessageAdapter
 
-    private var _binding: FragmentMessageBinding? = null
-    private val binding get() = _binding
-
-    private val SMS_PERMISSION_CODE = 1
+    private var _binding: FragmentMessageTwoBinding? = null
+    private val binding get() = _binding!!
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
-        _binding = FragmentMessageBinding.inflate(inflater, container, false)
+    ): View {
+        _binding = FragmentMessageTwoBinding.inflate(inflater, container, false)
+        checkRequestPermissions(requestPermissionsLauncher)
+        return binding.root
+    }
 
-        binding?.btnSend?.setOnClickListener {
-            if (checkSmsPermission()) {
-                sendMessage()
-            } else {
-                requestSmsPermission()
-            }
-        }
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        val factory = MessageViewModelFactory(requireActivity().application)
+        viewModel = ViewModelProvider(this, factory)[MessageViewModel::class.java]
+        setupRecyclerView()
+        setupMessageInput()
+        observeViewModel()
+        buttonClick()
+    }
+
+    private fun buttonClick() {
         binding?.btnTelephoneDetail?.setOnClickListener {
-            MyBottomSheetDialogFragment.show(parentFragmentManager,collectKPIs(requireContext(), "", "", true) )
-        }
-        return binding?.root
-    }
-
-    private fun sendMessage() {
-        val receiverNumber = binding?.etReceiverNumber?.text.toString()
-        val messageBody = binding?.etMessageBody?.text.toString()
-
-        if (receiverNumber.isNotEmpty() && messageBody.isNotEmpty()) {
-            try {
-//                val smsManager: SmsManager = SmsManager.getDefault()
-//                smsManager.sendTextMessage(receiverNumber, null, messageBody, null, null)
-                sendSmsWithKPIs(receiverNumber, messageBody)
-                //Toast.makeText(requireContext(), "Message Sent Successfully!", Toast.LENGTH_SHORT).show()
-
-                // Clear the input fields
-                binding?.etReceiverNumber?.text?.clear()
-                binding?.etMessageBody?.text?.clear()
-
-            } catch (e: Exception) {
-                Toast.makeText(
-                    requireContext(),
-                    "Failed to send message: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        } else {
-            Toast.makeText(
-                requireContext(),
-                "Please enter both number and message",
-                Toast.LENGTH_SHORT
-            ).show()
+            MyBottomSheetDialogFragment.show(parentFragmentManager,
+                collectKPIs(requireContext(), "", "", true) )
         }
     }
 
-    @SuppressLint("UnsafeImplicitIntentLaunch")
-    fun sendSmsWithKPIs(phoneNumber: String, message: String) {
-        val smsManager = SmsManager.getDefault()
-        val context = requireContext()
+    private fun setupRecyclerView() {
+        adapter = MessageAdapter()
+        binding.messagesList.apply {
+            layoutManager = LinearLayoutManager(context)
+            adapter = this@MessageFragment.adapter
+        }
+    }
 
-        val sentIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            Intent("SMS_SENT"),
-             PendingIntent.FLAG_IMMUTABLE
-        )
-        val deliveryIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            Intent("SMS_DELIVERED"),
-             PendingIntent.FLAG_IMMUTABLE
-        )
+    private fun setupMessageInput() {
+        binding.sendButton.setOnClickListener {
+            val phoneNumber = binding.phoneNumberInput.text.toString()
+            val content = binding.messageInput.text.toString()
 
-        // Register Broadcast Receivers for Sent and Delivery Status
-        requireContext().registerReceiver(object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                Log.e("Rahul", "SMS_SENT")
-                val status = when (resultCode) {
-                    Activity.RESULT_OK -> "Sent successfully"
-                    SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "Generic failure"
-                    SmsManager.RESULT_ERROR_NO_SERVICE -> "No service"
-                    SmsManager.RESULT_ERROR_NULL_PDU -> "Null PDU"
-                    SmsManager.RESULT_ERROR_RADIO_OFF -> "Radio off"
-                    else -> "Unknown"
-                }
-                appendKPI("Sent Status: $status")
-                binding?.messageKpiText?.text = messageKpi
+            if (phoneNumber.isBlank() || content.isBlank()) {
+                showError("Please enter both phone number and message")
+                return@setOnClickListener
             }
-        }, IntentFilter("SMS_SENT"), Context.RECEIVER_EXPORTED)
 
-        requireContext().registerReceiver(object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                Log.e("Rahul", "SMS_DELIVERED")
-                val status = when (resultCode) {
-                    Activity.RESULT_OK -> "Delivered successfully"
-                    Activity.RESULT_CANCELED -> "Delivery failed"
-                    else -> "Pending"
-                }
-                appendKPI("Delivery Status: $status")
-                appendKPI("Delivery Timestamp: ${System.currentTimeMillis()}")
-                binding?.messageKpiText?.text = messageKpi
+            viewModel.sendMessage(phoneNumber, content)
+            clearInputs()
+        }
+    }
+
+    private fun observeViewModel() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.messages.collect { messages ->
+                adapter.updateMessages(messages)
+                binding.emptyState.visibility =
+                    if (messages.isEmpty()) View.VISIBLE else View.GONE
             }
-        }, IntentFilter("SMS_DELIVERED"), Context.RECEIVER_EXPORTED)
-
-        // Send SMS
-        smsManager.sendTextMessage(phoneNumber, null, message, sentIntent, deliveryIntent)
-
-        // Collect KPIs
-        val messageKpi = collectKPIs(requireContext(), phoneNumber, message)
-        binding?.messageKpiText?.text = messageKpi
-        CoroutineScope(Dispatchers.Main).launch {
-            delay(2000)
-            val intent = Intent("SMS_SENT")
-            context.sendBroadcast(intent)
         }
 
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.metrics.collect { metrics ->
+                metrics?.let { updateMetricsDisplay(it) }
+            }
+        }
     }
 
-
-    private fun checkSmsPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            requireContext(),
-            Manifest.permission.SEND_SMS
-        ) == PackageManager.PERMISSION_GRANTED
+    private fun updateMetricsDisplay(metrics: SmsManager.MessageMetrics) {
+        binding.apply {
+            totalMessagesText.text = "Total: ${metrics.totalMessagesSent}"
+            successRateText.text = "Success: ${
+                if (metrics.totalMessagesSent > 0)
+                    "${(metrics.successfulDeliveries * 100 / metrics.totalMessagesSent)}%"
+                else "0%"
+            }"
+            failureRateText.text = "Failed: ${metrics.failedDeliveries}"
+            networkErrorsText.text = "Network Errors: ${metrics.networkErrors}"
+            retryAttemptsText.text = "Retries: ${metrics.retryAttempts}"
+        }
     }
 
-    private fun requestSmsPermission() {
-        ActivityCompat.requestPermissions(
-            requireActivity(),
-            arrayOf(Manifest.permission.SEND_SMS),
-            SMS_PERMISSION_CODE
+    private fun clearInputs() {
+        binding.apply {
+            messageInput.text?.clear()
+            phoneNumberInput.text?.clear()
+        }
+    }
+
+    private fun showError(message: String) {
+        Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
+
+    private val requestPermissionsLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            val granted = permissions[Manifest.permission.SEND_SMS] == true &&
+                    permissions[Manifest.permission.READ_PHONE_STATE] == true &&
+                    permissions[Manifest.permission.RECEIVE_SMS] == true
+            if (!granted) {
+                showToast(requireContext(), "Permissions required for this feature.")
+            }
+        }
+
+    fun checkRequestPermissions(requestPermissionsLauncher: ActivityResultLauncher<Array<String>>) {
+        requestPermissionsLauncher.launch(
+            arrayOf(
+                Manifest.permission.SEND_SMS,
+                Manifest.permission.READ_PHONE_STATE,
+                Manifest.permission.RECEIVE_SMS
+            )
         )
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == SMS_PERMISSION_CODE) {
-            if ((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
-                Toast.makeText(requireContext(), "Permission Granted", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(requireContext(), "Permission Denied", Toast.LENGTH_SHORT).show()
-            }
-        }
+    override fun onDestroy() {
+        super.onDestroy()
+        viewModel.unresiterListner()
     }
-
 }

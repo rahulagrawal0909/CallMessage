@@ -19,7 +19,7 @@
 
     <fragment
         android:id="@+id/navigation_notifications"
-        android:name="com.example.rakuten.ui.message.MessageFragmentTwo"
+        android:name="com.example.rakuten.ui.message.MessageFragment"
         android:label="@string/title_message"
         tools:layout="@layout/fragment_message_two" />
 </navigation>

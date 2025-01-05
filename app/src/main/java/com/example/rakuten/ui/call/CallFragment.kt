@@ -1,51 +1,62 @@
 package com.example.rakuten.ui.call
 
-import CallMonitoringService
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Context.TELEPHONY_SERVICE
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.TrafficStats
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.telecom.TelecomManager
 import android.telephony.PhoneStateListener
 import android.telephony.SignalStrength
 import android.telephony.TelephonyManager
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import androidx.fragment.app.Fragment
 import com.example.rakuten.databinding.FragmentHomeBinding
 import com.example.rakuten.utils.MyBottomSheetDialogFragment
 import com.example.rakuten.utils.checkRequestPermissions
+import com.example.rakuten.utils.getNetworkType
 import com.example.rakuten.utils.getSignalStrengthDescription
 import com.example.rakuten.utils.getSignalStrengthInfo
 import com.example.rakuten.utils.getTelephonyManagerDetails
 import com.example.rakuten.utils.hasPhoneStatePermission
 import com.example.rakuten.utils.showToast
 import dagger.hilt.android.AndroidEntryPoint
+import java.util.Timer
+import java.util.TimerTask
+
+@Suppress("DEPRECATION")
+
 
 @AndroidEntryPoint
-class CallFragment : Fragment(), CallMonitoringService.CallInfoCallback {
+class CallFragment : Fragment() {
 
+    private var phoneStateListener: PhoneStateListener? = null
     private var _binding: FragmentHomeBinding? = null
     private val binding get() = _binding
 
     private var callEndReason: String = ""
-    private var signaldetail: String =""
-    private var callTimer: Handler? = null
-    var isFirstTime = true
+    private var signaldetail: String = ""
+    private var callStartTime: Long = 0
+    private var callEndTime: Long = 0
+    private var isCallActive = false
+    private val callKPI = CallKPI()
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var callTimer: Timer? = null
 
     private val initialTxBytes = TrafficStats.getMobileTxBytes()
     private val initialRxBytes = TrafficStats.getMobileRxBytes()
-    private lateinit var callMonitoringService: CallMonitoringService
 
     private val telephonyManager: TelephonyManager by lazy {
         requireContext().getSystemService(TELEPHONY_SERVICE) as TelephonyManager
@@ -54,9 +65,9 @@ class CallFragment : Fragment(), CallMonitoringService.CallInfoCallback {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             val granted = permissions[Manifest.permission.READ_PHONE_STATE] == true &&
                     permissions[Manifest.permission.CALL_PHONE] == true &&
-                    permissions[Manifest.permission.READ_CALL_LOG] == true
+                    permissions[Manifest.permission.ANSWER_PHONE_CALLS] == true
             if (!granted) {
-                showToast(requireContext(), "Permissions required for this feature.")
+                //showToast(requireContext(), "Permissions required for this feature.")
             }
         }
 
@@ -83,11 +94,14 @@ class CallFragment : Fragment(), CallMonitoringService.CallInfoCallback {
         }
 
         binding?.btnSignalStrength?.setOnClickListener {
-             MyBottomSheetDialogFragment.show(parentFragmentManager, signaldetail)
+            MyBottomSheetDialogFragment.show(parentFragmentManager, signaldetail)
         }
 
         binding?.btnTelephoneDetail?.setOnClickListener {
-            MyBottomSheetDialogFragment.show(parentFragmentManager, getTelephonyManagerDetails(telephonyManager))
+            MyBottomSheetDialogFragment.show(
+                parentFragmentManager,
+                getTelephonyManagerDetails(telephonyManager)
+            )
         }
     }
 
@@ -104,12 +118,11 @@ class CallFragment : Fragment(), CallMonitoringService.CallInfoCallback {
 
     private fun startVoiceCall(receiverNumber: String, duration: Int) {
         if (ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.CALL_PHONE) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED
         ) {
             showToast(requireContext(), "CALL_PHONE permission not granted!")
             return
         }
-        startCallTimer(duration)
         val callIntent = Intent(Intent.ACTION_CALL).apply {
             data = Uri.parse("tel:$receiverNumber")
         }
@@ -121,56 +134,133 @@ class CallFragment : Fragment(), CallMonitoringService.CallInfoCallback {
             showToast(requireContext(), "Permission not granted for phone state monitoring.")
             return
         }
-        initializeCallMonitoring()
-        telephonyManager.listen(object : PhoneStateListener() {
+
+        phoneStateListener = object : PhoneStateListener() {
             override fun onCallStateChanged(state: Int, phoneNumber: String?) {
                 when (state) {
                     TelephonyManager.CALL_STATE_IDLE -> {
-                        if (callTimer == null) {
-                            if (isFirstTime) {
-                                binding?.callStatusText?.text = "Call Status: Ideal"
-                                isFirstTime = false
+                        callKPI.callStatus = "Call Status: IDLE"
+                        if (isCallActive) {
+                            callEndTime = System.currentTimeMillis()
+                            callKPI.callDuration = callEndTime - callStartTime
+
+                            // Determine who disconnected the call
+                            if (callKPI.timeoutReason.isNotEmpty()) {
+                                Log.d("CallMonitoring", "Call ended due to timeout")
                             } else {
-                                binding?.callStatusText?.text = "Call Status: Call Ended TimeOut"
+                                // This is a simplified logic. In real implementation,
+                                // you might need to use additional APIs or signals
+                                // to determine who exactly ended the call
+                                if (callKPI.callDuration < (duration * 60000)) {
+                                    callKPI.disconnectedBy = "Manual disconnection"
+                                }
                             }
-                        } else {
-                            if (isFirstTime) {
-                                binding?.callStatusText?.text = "Call Status: Ideal"
-                                isFirstTime = false
-                            } else {
-                                binding?.callStatusText?.text = "Call Status: Call Ended by User "
-                            }
+
+                            //printCallSummary()
+                            stopCallTimer()
                         }
+                        printCallSummary()
+                        isCallActive = false
                     }
 
                     TelephonyManager.CALL_STATE_OFFHOOK -> {
-                        binding?.callStatusText?.text = "Call Status: Call In Progress"
+                        // binding?.callStatusText?.text = "Call Status: Call In Progress"
+                        callKPI.callStatus = "ACTIVE"
+                        if (!isCallActive) {
+                            callStartTime = System.currentTimeMillis()
+                            isCallActive = true
+                            startCallTimer(duration * 60000L)
+                        }
+                        printCallSummary()
                     }
 
                     TelephonyManager.CALL_STATE_RINGING -> {
-                        binding?.callStatusText?.text = "Call Status: Ringing , Incoming call"
+                        callKPI.callStatus = "Call Status: RINGING"
+                        printCallSummary()
+                        //binding?.callStatusText?.text = "Call Status: Ringing , Incoming call"
                     }
-
-
                 }
             }
-        }, PhoneStateListener.LISTEN_CALL_STATE)
+        }
+        telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE)
     }
 
+    private fun startCallTimer(duration: Long) {
+        callTimer = Timer()
+        callTimer?.schedule(object : TimerTask() {
+            override fun run() {
+                handler.post {
+                    if (isCallActive) {
+                        callKPI.timeoutReason = "Call EndTime Exceeded By Given Duration "
+                        endCall()
+                    }
+                }
+            }
+        }, duration)
+    }
+
+    private fun stopCallTimer() {
+        callTimer?.cancel()
+        callTimer = null
+    }
+
+    private fun endCall() {
+        try {
+            // Get the TelecomManager instance
+            val telecomManager =
+                requireContext().getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+
+            // Check for permission
+            if (ActivityCompat.checkSelfPermission(
+                    requireContext(),
+                    Manifest.permission.ANSWER_PHONE_CALLS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                Log.e("CallMonitoring", "Missing ANSWER_PHONE_CALLS permission")
+                return
+            }
+            // End the call using TelecomManager
+            if (telecomManager.isInCall) {
+                telecomManager.endCall()
+                Log.d("CallMonitoring", "Call ended successfully")
+            }
+        } catch (e: Exception) {
+            Log.e("CallMonitoring", "Error ending call", e)
+        }
+    }
+
+    private fun printCallSummary() {
+        val summary ="Call Summary:\n" +
+                "Status: ${callKPI.callStatus}\n" +
+                "Duration: ${callKPI.callDuration / 1000} seconds\n" +
+                "Disconnected by: ${callKPI.disconnectedBy}\n" +
+                "${if (callKPI.timeoutReason.isNotEmpty()) callKPI.timeoutReason else ""}"
+
+        binding?.strength?.text = callKPI.strength
+        binding?.simCountry?.text = callKPI.simCountry
+        binding?.simCountry?.text = callKPI.simCountry
+        binding?.networkType?.text = callKPI.networkType
+        binding?.disconnectReason?.text = callKPI.disconnectedBy +"${if (callKPI.timeoutReason.isNotEmpty()) callKPI.timeoutReason else ""}"
+        binding?.duration?.text = "${callKPI.callDuration / 1000} seconds"
+        binding?.status?.text = callKPI.callStatus
+
+        binding?.callStatusText?.text = summary
+    }
 
 
     private fun fetchSignalStrength() {
         telephonyManager.listen(
             object : PhoneStateListener() {
-                @RequiresApi(Build.VERSION_CODES.M)
                 override fun onSignalStrengthsChanged(signalStrength: SignalStrength?) {
                     signalStrength?.let {
                         // Signal strength level (0-4)
                         signaldetail = getSignalStrengthInfo(signalStrength, true)
+                        val signal = getSignalStrengthDescription(it.level)
                         binding?.callStrengthText?.text = "Call Strength: \n" +
-                                "Call Strength Level = ${getSignalStrengthDescription(it.level)} \n" +
+                                "Call Strength Level = ${signal} \n" +
                                 "${getSignalStrengthInfo(signalStrength)}"
-
+                        callKPI.strength = signal
+                        printCallSummary()
                     }
                 }
 
@@ -184,13 +274,8 @@ class CallFragment : Fragment(), CallMonitoringService.CallInfoCallback {
 
                 override fun onDataConnectionStateChanged(networkType: Int) {
                     //super.onDataConnectionStateChanged(networkType)
-                    val networkTypeName = when (networkType) {
-                        TelephonyManager.NETWORK_TYPE_LTE -> "LTE (4G)"
-                        TelephonyManager.NETWORK_TYPE_NR -> "5G"
-                        TelephonyManager.NETWORK_TYPE_HSPA -> "HSPA (3G)"
-                        TelephonyManager.NETWORK_TYPE_EDGE -> "5G VoLTE Calls"
-                        else -> "Unknown"
-                    }
+                    val networkTypeName = getNetworkType(networkType)
+                    callKPI.networkType = networkTypeName
                     binding?.networkTypeText?.text = "NetworkInfo: \n" +
                             "Network type: $networkTypeName"
                 }
@@ -200,9 +285,8 @@ class CallFragment : Fragment(), CallMonitoringService.CallInfoCallback {
 
     }
 
+    @SuppressLint("SetTextI18n")
     private fun fetchNetworkDetails() {
-        val telephonyManager =
-            requireContext().getSystemService(TELEPHONY_SERVICE) as TelephonyManager
         val carrierName = telephonyManager.networkOperatorName
         val networkCountryIso = telephonyManager.networkCountryIso
         val simCountryIso = telephonyManager.simCountryIso
@@ -213,7 +297,7 @@ class CallFragment : Fragment(), CallMonitoringService.CallInfoCallback {
 
         val transmitted = (currentTxBytes - initialTxBytes) / 1024 // KB
         val received = (currentRxBytes - initialRxBytes) / 1024 // KB
-
+        callKPI.simCountry = "Sim Country Iso "+simCountryIso
         binding?.otherDetailText?.text = "Network Detail: \n" +
                 " CarrierName = $carrierName \n" +
                 " Network Country Iso = $networkCountryIso \n" +
@@ -225,99 +309,11 @@ class CallFragment : Fragment(), CallMonitoringService.CallInfoCallback {
 
     }
 
-    private fun startCallTimer(duration: Int) {
-//        val callDuration = duration // Duration in minutes
-//        val intent = Intent(requireContext(), CallService::class.java).apply {
-//            putExtra("DURATION", callDuration)
-//        }
-//        requireContext().startService(intent)
-
-        callTimer = Handler(Looper.getMainLooper()).apply {
-            postDelayed({
-                // endCall()
-                callEndReason = "Time's Up and Cut by User"
-                binding?.callStatusText?.text = "Call Status: Ending Call - $callEndReason"
-                // End Call (Optional, Requires Root or Accessibility Service)
-                Toast.makeText(requireContext(), "Call Ended: $callEndReason", Toast.LENGTH_SHORT)
-                    .show()
-                fetchNetworkDetails()
-                callTimer?.removeCallbacksAndMessages(null)
-                callTimer = null
-            }, duration * 60 * 1000L) // Convert minutes to milliseconds
-        }
-
-//        val callDuration = duration // Duration in minutes
-//        val intent = Intent(requireContext(), CallService::class.java).apply {
-//            putExtra("DURATION", callDuration)
-//        }
-//        CallService1.enqueueWork(requireContext(), intent)
-//        telephonyManager
-
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
-    }
-
-    private fun initializeCallMonitoring() {
-        callMonitoringService = CallMonitoringService(requireContext())
-        callMonitoringService.startMonitoring(this)
-    }
-
-    override fun onCallInfoUpdated(info: CallMonitoringService.CallInformation) {
-        var data: String = ""
-        activity?.runOnUiThread {
-            // Update all UI elements with the new information
-            data = data + "Call State: ${getCallStateString(info.callState)}"
-            data = data + "Signal Strength: ${info.signalStrength}/4"
-            data = data + "Network Type: ${info.networkType}"
-            data = data + "Service State: ${info.serviceState}"
-            data = data + "SIM State: ${info.simState}"
-            data = data + "Network Speed: ${info.networkSpeed}"
-            data = data + "Call Direction: ${info.callDirection}"
-            data = data + "Call Duration: ${formatCallDuration(info.callDuration)}"
-            data = data + "Call Quality: ${getCallQualityString(info.callQuality)}"
-            data = data + "Carrier: ${info.carrierName}"
-            data = data + "Roaming: ${if (info.isRoaming) "Yes" else "No"}"
-            data =
-                data + "Disconnect Cause: ${info.disconnectCause.takeIf { it.isNotEmpty() } ?: "N/A"}"
-
-            binding?.connectionText?.text = data
-        }
-    }
-
-    private fun getCallStateString(state: Int): String {
-        return when (state) {
-            TelephonyManager.CALL_STATE_IDLE -> "Idle"
-            TelephonyManager.CALL_STATE_RINGING -> "Ringing"
-            TelephonyManager.CALL_STATE_OFFHOOK -> "Off Hook"
-            else -> "Unknown"
-        }
-    }
-
-    private fun getCallQualityString(quality: Int): String {
-        return when (quality) {
-            0 -> "Poor"
-            1 -> "Fair"
-            2 -> "Good"
-            3 -> "Excellent"
-            else -> "Unknown"
-        }
-    }
-
-    private fun formatCallDuration(seconds: Long): String {
-        if (seconds <= 0) return "00:00"
-        val minutes = seconds / 60
-        val remainingSeconds = seconds % 60
-        return String.format("%02d:%02d", minutes, remainingSeconds)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        if (::callMonitoringService.isInitialized) {
-            callMonitoringService.stopMonitoring()
-        }
+        telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
+        stopCallTimer()
     }
 
 }

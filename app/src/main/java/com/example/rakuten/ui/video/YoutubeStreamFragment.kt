@@ -30,6 +30,12 @@ class YoutubeStreamFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentPlayerBinding.inflate(inflater, container, false)
+        handleClickListener()
+        takeDecisionBasedOnNetwork(requireContext())
+        return binding.root
+    }
+
+    private fun handleClickListener() {
         binding?.playButton?.setOnClickListener {
             if (isWifiConnected) {
                 Toast.makeText(
@@ -41,20 +47,6 @@ class YoutubeStreamFragment : Fragment() {
                 requireContext().startActivity(Intent(requireContext(), VideoActivity::class.java))
             }
         }
-        takeDecisionBasedOnNetwork(requireContext())
-        return binding.root
-    }
-
-    override fun onPause() {
-        super.onPause()
-    }
-
-    override fun onResume() {
-        super.onResume()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
     }
 
     override fun onDestroyView() {

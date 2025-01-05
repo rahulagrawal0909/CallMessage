@@ -2,13 +2,16 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:padding="8dp">
 
     <!-- Metrics Card -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/metricsCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        app:cardElevation="8dp"
+        app:cardCornerRadius="12dp"
+        app:cardUseCompatPadding="true"
         app:layout_constraintTop_toTopOf="parent">
 
         <LinearLayout
@@ -83,6 +86,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Phone Number"
+            android:background="@drawable/ic_edittex_bg"
             android:inputType="phone"/>
     </com.google.android.material.textfield.TextInputLayout>
 
@@ -98,17 +102,39 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Message"
+            android:gravity="top|start"
+            android:lines="5"
+            android:minLines="3"
+            android:scrollbars="vertical"
             android:inputType="textMultiLine"
-            android:minLines="2"/>
+            android:background="@drawable/ic_edittex_bg"
+            />
     </com.google.android.material.textfield.TextInputLayout>
 
     <Button
         android:id="@+id/sendButton"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:text="Send Message"
         android:layout_marginTop="8dp"
+        app:layout_constraintHorizontal_weight="1"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/btnTelephoneDetail"
         app:layout_constraintTop_toBottomOf="@id/messageLayout"/>
+
+    <Button
+        android:id="@+id/btnTelephoneDetail"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="0.5"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="8dp"
+        android:text="Tel Detail"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@+id/sendButton"
+        app:layout_constraintHorizontal_weight="1"
+        app:layout_constraintTop_toBottomOf="@id/messageLayout"/>
+        />
 
     <!-- Messages List -->
     <androidx.recyclerview.widget.RecyclerView

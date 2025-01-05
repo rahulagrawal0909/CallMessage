@@ -23,7 +23,7 @@ fun checkRequestPermissions(requestPermissionsLauncher: ActivityResultLauncher<A
         arrayOf(
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_CALL_LOG
+            Manifest.permission.ANSWER_PHONE_CALLS
         )
     )
 }
@@ -74,16 +74,7 @@ fun getTelephonyManagerDetails(telephonyManager: TelephonyManager): String {
     val info = mutableListOf<String>()
 
     // Network Type
-    val networkType = when (telephonyManager.networkType) {
-        TelephonyManager.NETWORK_TYPE_LTE -> "LTE N/W"
-        TelephonyManager.NETWORK_TYPE_NR -> "5G N/W"
-        TelephonyManager.NETWORK_TYPE_GSM -> "GSM N/W"
-        TelephonyManager.NETWORK_TYPE_HSDPA -> "HSDPA N/W"
-        TelephonyManager.NETWORK_TYPE_EDGE -> "EDGE N/W"
-        TelephonyManager.NETWORK_TYPE_CDMA -> "CDMA N/W"
-        TelephonyManager.NETWORK_TYPE_UNKNOWN -> "Unknown N/W"
-        else -> "Other (${telephonyManager.networkType})"
-    }
+    val networkType = getNetworkType(telephonyManager.networkType)
     info.add("Network Type: $networkType")
 
     // Call State
@@ -170,12 +161,7 @@ fun collectKPIs(context: Context, phoneNumber: String, message: String, isFullDe
     kpiList.add("Carrier Name: ${telephonyManager.networkOperatorName}")
 
     // Network Type
-    val networkType = when (telephonyManager.networkType) {
-        TelephonyManager.NETWORK_TYPE_LTE -> "LTE"
-        TelephonyManager.NETWORK_TYPE_NR -> "5G"
-        TelephonyManager.NETWORK_TYPE_GSM -> "GSM"
-        else -> "Unknown (${telephonyManager.networkType})"
-    }
+    val networkType = getNetworkType(telephonyManager.dataNetworkType)
     kpiList.add("Network Type: $networkType")
 
     val phoneType = when (telephonyManager.phoneType) {
@@ -255,3 +241,14 @@ fun getSignalStrengthDescription(level: Int): String {
         else -> "Unknown Signal Level"
     }
 }
+fun getNetworkType(networkType: Int): String {
+   return when (networkType) {
+        TelephonyManager.NETWORK_TYPE_LTE -> "LTE (4G)"
+        TelephonyManager.NETWORK_TYPE_NR -> "5G"
+       TelephonyManager.NETWORK_TYPE_GSM -> "GSM N/W"
+        TelephonyManager.NETWORK_TYPE_HSPA, TelephonyManager.NETWORK_TYPE_HSPAP, TelephonyManager.NETWORK_TYPE_UMTS -> "HSPA (3G)"
+        TelephonyManager.NETWORK_TYPE_EDGE, TelephonyManager.NETWORK_TYPE_GPRS -> "VoLTE 2G"
+        else -> "Cellular Unknown"
+    }
+}
+

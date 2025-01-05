@@ -6,7 +6,6 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.example.rakuten.R
-import com.example.rakuten.ui.viewmodel.MessageUiState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

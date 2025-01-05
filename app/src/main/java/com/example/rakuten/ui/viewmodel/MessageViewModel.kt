@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.rakuten.ui.message.DeliveryStatus
+import com.example.rakuten.ui.message.MessageUiState
 import com.example.rakuten.ui.message.SmsManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -13,15 +14,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-data class MessageUiState(
-    val id: String,
-    val phoneNumber: String,
-    val content: String,
-    val status: DeliveryStatus,
-    val timestamp: Long,
-    val errorMessage: String? = null
-)
 
 @HiltViewModel
 class MessageViewModel @Inject constructor(@ApplicationContext val context: Context) : ViewModel() {
